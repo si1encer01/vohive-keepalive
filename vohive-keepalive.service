@@ -1,0 +1,25 @@
+[Unit]
+Description=VoHive 保号服务
+After=network-online.target vohive.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/vohive-keepalive/service.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/vohive-keepalive/vohive_keepalive.py
+Restart=always
+RestartSec=5
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/vohive-keepalive /var/lib/vohive-keepalive
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target

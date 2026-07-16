@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "device_id": "modem-1",
+  "interface": "wwan0",
+  "interval_days": 120,
+  "target_url": "https://example.com/",
+  "ip_version": "v4",
+  "apn": "",
+  "network_connect_timeout_seconds": 90,
+  "request_timeout_seconds": 20,
+  "max_session_seconds": 180,
+  "max_session_bytes": 524288,
+  "max_response_bytes": 65536,
+  "failure_retry_hours": 24,
+  "idle_mode": "cellular_sms",
+  "notify_on_success": true,
+  "notify_on_failure": true,
+  "cleanup_on_start": true
+}
