@@ -1,0 +1,19 @@
+[Unit]
+Description=VoHive Webhook to PushDeer bridge
+After=network-online.target vohive.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/vohive/pushdeer.env
+Environment=LISTEN_PORT=7581
+ExecStart=/usr/bin/python3 /opt/vohive/bin/vohive_pushdeer_bridge.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

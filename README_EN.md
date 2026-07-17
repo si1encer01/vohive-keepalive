@@ -18,6 +18,7 @@ At a scheduled time, it briefly enables mobile data on a selected device, **forc
 - **Failure retry:** retries failures on a separate interval and never records a failed attempt as a successful keepalive.
 - **Idle policies:** restores cellular SMS standby, VoWiFi, or airplane mode after a run.
 - **PushDeer notifications:** a success message includes traffic usage and the next scheduled time; a failure message includes the error and retry time.
+- **SMS forwarding:** receives VoHive SMS webhooks and relays them through PushDeer, using the SMS body as the notification title and sender/device metadata as the description.
 - **Run history:** stores trigger source, HTTP status, duration, traffic, restore result, and errors in SQLite.
 - **Boot persistence:** includes a systemd unit; interrupted runs are marked failed and the idle policy is reapplied after restart.
 - **Rollback-ready integration:** includes an Nginx gateway example that preserves the original VoHive URL and a rollback script.
@@ -40,6 +41,36 @@ VoHive sidebar
 Same-port integration is provided by `integration/nginx-vohive-gateway.conf.example`. Nginx listens on the original public port, VoHive is moved to a separate backend port, and the keepalive API is exposed internally through `/keepalive-api/`.
 
 The UI integration has been tested with **VoHive 1.5.5**. If a later VoHive release changes the sidebar DOM, the selectors in the injection script may need to be updated.
+
+## SMS Forwarding to PushDeer
+
+`vohive_pushdeer_bridge.py` provides a loopback-only webhook that forwards SMS messages received by VoHive to PushDeer:
+
+- PushDeer title: the SMS body
+- PushDeer description: sender, device, and event type
+- The SMS body is not duplicated in both title and description
+- Accepts JSON and form-encoded webhooks
+- Listens on `127.0.0.1:7581` by default
+
+Example installation:
+
+```bash
+sudo install -d -m 755 /opt/vohive/bin
+sudo install -m 755 vohive_pushdeer_bridge.py /opt/vohive/bin/
+sudo install -m 600 pushdeer.env.example /etc/vohive/pushdeer.env
+sudo install -m 644 vohive-pushdeer-bridge.service /etc/systemd/system/
+sudoedit /etc/vohive/pushdeer.env
+sudo systemctl daemon-reload
+sudo systemctl enable --now vohive-pushdeer-bridge.service
+```
+
+Then configure the VoHive SMS webhook as:
+
+```text
+http://127.0.0.1:7581/vohive
+```
+
+The real `PUSHDEER_KEY` should only be stored in an environment file with mode `0600`.
 
 ## Why the Default Is 120 Days
 
@@ -161,7 +192,7 @@ An immediate run enables real cellular data and may incur roaming charges.
 ## Tests
 
 ```bash
-python3 -m unittest -v test_keepalive.py
+python3 -m unittest discover -v
 ```
 
 When run as a normal user, the root-only interface-binding test is skipped. When run as root on Linux, it performs a real `SO_BINDTODEVICE` test using loopback and does not use cellular data.

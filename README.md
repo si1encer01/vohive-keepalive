@@ -18,6 +18,7 @@
 - **失败重试**：失败后按独立间隔重试，不会把失败误记成保号成功。
 - **空闲策略**：任务结束后可恢复为蜂窝驻网接短信、VoWiFi 或飞行模式。
 - **PushDeer 通知**：成功通知包含本次流量和下次时间；失败通知包含错误和重试时间。
+- **短信转发**：接收 VoHive 短信 Webhook，并通过 PushDeer 推送；短信正文直接作为通知标题，发件人和设备信息放在说明中。
 - **执行历史**：SQLite 保存触发来源、HTTP 状态、耗时、流量、恢复结果和错误。
 - **开机自启**：提供 systemd unit；进程重启时会把未完成任务标为失败并重新应用空闲策略。
 - **可回滚集成**：Nginx 网关示例保留 VoHive 原访问地址，并提供一键回滚脚本。
@@ -40,6 +41,36 @@ VoHive 左侧菜单
 同端口集成由 `integration/nginx-vohive-gateway.conf.example` 完成：Nginx 对外监听原端口，VoHive 改为仅作为后端监听另一个端口，保号 API 通过 `/keepalive-api/` 反向代理。
 
 当前前端集成在 **VoHive 1.5.5** 上验证。VoHive 若调整侧栏 DOM，可能需要同步修改注入脚本中的选择器。
+
+## 短信转发到 PushDeer
+
+`vohive_pushdeer_bridge.py` 提供一个仅监听本机的 Webhook 接口，把 VoHive 收到的短信转发到 PushDeer：
+
+- PushDeer 标题：短信正文
+- PushDeer 说明：发件人、设备和事件类型
+- 短信正文不会在标题和说明中重复出现
+- 支持 JSON 和表单格式的 Webhook
+- 默认只监听 `127.0.0.1:7581`
+
+安装示例：
+
+```bash
+sudo install -d -m 755 /opt/vohive/bin
+sudo install -m 755 vohive_pushdeer_bridge.py /opt/vohive/bin/
+sudo install -m 600 pushdeer.env.example /etc/vohive/pushdeer.env
+sudo install -m 644 vohive-pushdeer-bridge.service /etc/systemd/system/
+sudoedit /etc/vohive/pushdeer.env
+sudo systemctl daemon-reload
+sudo systemctl enable --now vohive-pushdeer-bridge.service
+```
+
+然后把 VoHive 的短信 Webhook 指向：
+
+```text
+http://127.0.0.1:7581/vohive
+```
+
+真实 `PUSHDEER_KEY` 只应保存在权限为 `0600` 的环境文件中。
 
 ## 为什么默认 120 天
 
@@ -161,7 +192,7 @@ sudo systemctl status vohive-keepalive.service
 ## 测试
 
 ```bash
-python3 -m unittest -v test_keepalive.py
+python3 -m unittest discover -v
 ```
 
 普通用户运行时，要求 root 的网卡绑定测试会跳过；在 Linux root 环境中会使用 loopback 完成真实 `SO_BINDTODEVICE` 测试，不会使用蜂窝数据。
