@@ -15,5 +15,11 @@
   "idle_mode": "cellular_sms",
   "notify_on_success": true,
   "notify_on_failure": true,
-  "cleanup_on_start": true
+  "cleanup_on_start": true,
+  "profile_management_enabled": false,
+  "lpac_path": "/usr/local/bin/lpac-at",
+  "lpac_at_device": "/dev/ttyUSB2",
+  "profile_switch_timeout_seconds": 120,
+  "profile_discovery_interval_seconds": 300,
+  "restore_profile_iccid": ""
 }

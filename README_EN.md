@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README_EN.md)
 
-An unofficial VoHive companion service for periodically and audibly using cellular data to keep long-term SMS verification SIM cards active.
+An unofficial VoHive companion service that periodically uses cellular data in an auditable way to keep long-term SMS verification SIM/eSIM numbers active. It supports multiple operator profiles stored on one eUICC and maintains an independent schedule and audit trail for every number.
 
 At a scheduled time, it briefly enables mobile data on a selected device, **forces an HTTPS request through the configured cellular interface**, records the actual traffic used and the success time, and then restores the desired idle state for receiving SMS messages. Both successful and failed runs can be reported through PushDeer.
 
@@ -12,6 +12,8 @@ At a scheduled time, it briefly enables mobile data on a selected device, **forc
 
 - **Native-style entry:** adds a “Keepalive / 保号” item to the VoHive sidebar and renders the management view in the main content area.
 - **Scheduled runs:** configurable day-based interval; defaults to 120 days and does not consume cellular data immediately after first deployment.
+- **Multiple numbers:** discovers installed profiles through lpac's AT backend; every ICCID has its own enable switch, label, interval, next run, last success, and traffic record.
+- **Safe switch and restore:** only lists and enables existing profiles—there are no delete, reset, or download operations—and restores either a designated primary profile or the profile active before the run.
 - **Real cellular verification:** uses Linux `SO_BINDTODEVICE` to lock the HTTPS request to the selected interface, preventing a normal Ethernet route from producing a false success.
 - **Traffic accounting:** records RX, TX, and total bytes for both the complete cellular session and the verification request.
 - **Safety limits:** configurable connection timeout, request timeout, session duration, total session traffic, and response-size caps.
@@ -35,6 +37,7 @@ VoHive sidebar
 └── Keepalive / 保号  ← added
                        ├── Service status / next run / last success
                        ├── Policy configuration
+                       ├── eSIM number policies / run one number
                        └── Run history
 ```
 
@@ -88,6 +91,7 @@ Other carriers may use different inactivity rules. Always adjust the interval to
 - A working VoHive installation with the cellular device already registered
 - Local access to the VoHive API
 - A cellular interface available under `/sys/class/net/<interface>`
+- Multi-profile mode requires a multi-profile eUICC, a usable AT serial port, and [`lpac`](https://github.com/estkme-group/lpac) with its AT backend
 - Optional: Nginx for native sidebar and same-port integration
 - Optional: PushDeer for run notifications
 
@@ -117,6 +121,27 @@ At minimum, configure:
 - `VOHIVE_BASE_URL`, `VOHIVE_USER`, and `VOHIVE_PASSWORD`
 - `BASIC_PASSWORD`: a separate strong password for the keepalive management API
 - `PUSHDEER_KEY` if notifications are required
+
+## Multi-number eSIM Mode
+
+1. Install the official `lpac` build or a compatible build with the AT backend. Do not commit third-party binaries into this repository.
+2. Configure `lpac_path` and `lpac_at_device`, then enable `profile_management_enabled`.
+3. The UI reads already-installed profiles and enrolls them automatically. A newly discovered number inherits the global `interval_days` and is first scheduled one full interval later, so discovery itself **does not open cellular data**.
+4. In the eSIM profile table, use a phone number or purpose as the label and configure a separate 1–179 day interval or disable automatic runs for that number.
+5. Leave `restore_profile_iccid` empty to restore the profile active before each task, or select a designated primary number. Only the currently enabled profile can normally register and receive SMS.
+
+Key settings:
+
+| Setting | Purpose | Default |
+| --- | --- | --- |
+| `profile_management_enabled` | Enable profile discovery, switching, and per-profile scheduling | `false` |
+| `lpac_path` | Absolute path to the AT-capable lpac binary | `/usr/local/bin/lpac-at` |
+| `lpac_at_device` | Modem AT port used to access the eUICC | `/dev/ttyUSB2` |
+| `profile_switch_timeout_seconds` | Wait for the card and VoHive to recognize a switch | `120` |
+| `profile_discovery_interval_seconds` | Background profile rescan interval | `300` |
+| `restore_profile_iccid` | Profile restored after each task; empty restores the previous profile | empty |
+
+The global `interval_days` value is the default for new numbers. Changing it in the UI reschedules every managed number to "now + new interval"; individual numbers can then be assigned different intervals. A profile removed from the card is marked missing and excluded from automatic scheduling until it appears again.
 
 The service listens on `127.0.0.1:7582` by default. Do not expose the non-TLS Basic Auth endpoint directly to the public Internet.
 
@@ -185,7 +210,10 @@ All endpoints except `/health` require HTTP Basic Auth.
 | `GET` | `/api/status` | Current status, last success, and next run |
 | `GET` / `PUT` | `/api/config` | Read or update configuration |
 | `GET` | `/api/history?limit=50` | Run history |
-| `POST` | `/api/run` | Run immediately; body must be `{"confirm": true}` |
+| `GET` | `/api/profiles` | Managed eSIM profiles and per-profile schedules |
+| `POST` | `/api/profiles/refresh` | Read-only rescan of installed profiles |
+| `PUT` | `/api/profiles/<ICCID>` | Update one number's label, automatic-run switch, and interval |
+| `POST` | `/api/run` | Run immediately; optionally select `iccid` and explicitly set `confirm` |
 
 An immediate run enables real cellular data and may incur roaming charges.
 
@@ -202,6 +230,8 @@ When run as a normal user, the root-only interface-binding test is skipped. When
 - Never commit `service.env`, a real configuration file, SQLite databases, logs, or the generated Nginx Authorization value.
 - Verification targets must use HTTPS and cannot contain embedded credentials.
 - `max_session_bytes` is a safety cap and may not exactly match the carrier's billable byte count.
+- The service never deletes, resets, or downloads eSIM profiles, but enabling another profile is still a real card operation. Validate new hardware with a read-only `lpac profile list` first.
+- An eUICC normally enables only one operator profile at a time, so inactive profiles cannot generally receive SMS. Set `restore_profile_iccid` to the day-to-day SMS number or keep the default “restore previous profile” behavior.
 - Verify the device ID, interface name, and idle policy before deployment. Do not click “Run now” on an expensive SIM without reviewing the configuration.
 - Add TLS, access control, and firewall rules before any public exposure. Private-network deployment is recommended.
 
