@@ -339,7 +339,11 @@ class Database:
         return str(row[0]) if row else None
 
     def sync_profiles(
-        self, profiles: list[dict[str, Any]], interval_days: int, initial_next_run_at: str
+        self,
+        profiles: list[dict[str, Any]],
+        interval_days: int,
+        initial_next_run_at: str,
+        active_initial_next_run_at: str | None = None,
     ) -> None:
         seen_at = iso()
         seen_iccids: set[str] = set()
@@ -374,7 +378,12 @@ class Database:
                         str(profile.get("profileName") or "")[:120],
                         str(profile.get("profileState") or "unknown")[:32],
                         interval_days,
-                        initial_next_run_at,
+                        (
+                            active_initial_next_run_at
+                            if active_initial_next_run_at
+                            and str(profile.get("profileState") or "").lower() == "enabled"
+                            else initial_next_run_at
+                        ),
                         seen_at,
                         seen_at,
                     ),
@@ -842,14 +851,28 @@ class KeepAliveManager:
             if not force and age < cfg["profile_discovery_interval_seconds"]:
                 return self.db.profiles()
             discovered = self.profile_manager.list_profiles(cfg)
-            initial_next = self.db.get_meta("next_run_at") or iso(
-                now_utc() + dt.timedelta(days=cfg["interval_days"])
-            )
-            self.db.sync_profiles(discovered, cfg["interval_days"], initial_next)
-            if len(discovered) == 1:
-                self.db.backfill_single_profile_legacy_success(str(discovered[0]["iccid"]))
+            self._sync_discovered_profiles(cfg, discovered)
             self.last_profile_refresh_monotonic = time.monotonic()
             return self.db.profiles()
+
+    def _sync_discovered_profiles(
+        self, cfg: dict[str, Any], discovered: list[dict[str, Any]]
+    ) -> None:
+        had_managed_profiles = bool(self.db.profiles())
+        new_profile_next = iso(now_utc() + dt.timedelta(days=cfg["interval_days"]))
+        active_initial_next = (
+            new_profile_next
+            if had_managed_profiles
+            else (self.db.get_meta("next_run_at") or new_profile_next)
+        )
+        self.db.sync_profiles(
+            discovered,
+            cfg["interval_days"],
+            new_profile_next,
+            active_initial_next_run_at=active_initial_next,
+        )
+        if len(discovered) == 1:
+            self.db.backfill_single_profile_legacy_success(str(discovered[0]["iccid"]))
 
     def profiles(self, force: bool = False) -> list[dict[str, Any]]:
         cfg = self.config_store.load()
@@ -1068,11 +1091,7 @@ class KeepAliveManager:
         try:
             if cfg.get("profile_management_enabled"):
                 discovered = self.profile_manager.list_profiles(cfg)
-                self.db.sync_profiles(
-                    discovered,
-                    cfg["interval_days"],
-                    self.db.get_meta("next_run_at") or iso(now_utc() + dt.timedelta(days=cfg["interval_days"])),
-                )
+                self._sync_discovered_profiles(cfg, discovered)
                 active = next((item for item in discovered if item.get("profileState") == "enabled"), None)
                 active_before = str(active.get("iccid") or "") if active else ""
                 restore_target = cfg.get("restore_profile_iccid") or active_before

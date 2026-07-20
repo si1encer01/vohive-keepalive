@@ -133,6 +133,33 @@ class KeepaliveTests(unittest.TestCase):
             self.assertEqual(item["last_success_at"], finished)
             self.assertEqual(item["last_success_bytes"], 36116)
 
+    def test_new_profile_gets_full_interval_instead_of_stale_legacy_date(self):
+        first = "1111111111111111111"
+        second = "2222222222222222222"
+        with tempfile.TemporaryDirectory() as tmp:
+            config = vk.ConfigStore(str(Path(tmp) / "config.json"))
+            cfg = config.load()
+            db = vk.Database(str(Path(tmp) / "db.sqlite"))
+            db.set_meta("next_run_at", "2026-01-01T00:00:00+00:00")
+            manager = vk.KeepAliveManager(config, db)
+            manager._sync_discovered_profiles(
+                cfg, [{"iccid": first, "profileState": "enabled", "profileName": "Primary"}]
+            )
+            self.assertEqual(db.profile(first)["next_run_at"], "2026-01-01T00:00:00+00:00")
+
+            manager._sync_discovered_profiles(
+                cfg,
+                [
+                    {"iccid": first, "profileState": "disabled", "profileName": "Primary"},
+                    {"iccid": second, "profileState": "enabled", "profileName": "New line"},
+                ],
+            )
+            remaining_days = (
+                vk.parse_iso(db.profile(second)["next_run_at"]) - vk.now_utc()
+            ).total_seconds() / 86400
+            self.assertAlmostEqual(remaining_days, 120, delta=0.01)
+            self.assertEqual(db.profile(first)["next_run_at"], "2026-01-01T00:00:00+00:00")
+
     def test_full_run_records_success_without_real_network(self):
         class FakeClient:
             def overview(self, device_id):
